@@ -1,10 +1,12 @@
 package claude
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -14,7 +16,76 @@ const (
 	anthropicURL     = "https://api.anthropic.com/v1/messages"
 	anthropicVersion = "2023-06-01"
 	defaultOllamaURL = "http://localhost:11434"
+
+	// Default model pair for each provider. The Fast model handles structured,
+	// high-volume calls (per-chapter scene scan, continuity check, outline
+	// chunk expansion). The Robust model handles foundational/creative work
+	// (macro analysis, chapter writing, fixes).
+	DefaultAnthropicFast   = "claude-haiku-4-5"
+	DefaultAnthropicRobust = "claude-sonnet-4-6"
+	DefaultOllamaFast      = "qwen2.5:14b"
+	DefaultOllamaRobust    = "gemma2:27b"
 )
+
+// Pair couples a fast model (cheap, structured-JSON tasks) with a robust model
+// (creative or quality-critical tasks). Callers pick which one to use based on
+// the nature of each call.
+type Pair struct {
+	Fast   *Client
+	Robust *Client
+}
+
+// Provider returns the provider string of the underlying clients (assumes both
+// share a provider, which is always the case as set up by NewPair*).
+func (p *Pair) Provider() string {
+	if p == nil || p.Robust == nil {
+		return ""
+	}
+	return p.Robust.Provider()
+}
+
+// NewAnthropicPair creates a Fast/Robust pair against Anthropic. Empty model
+// names fall back to the package defaults.
+func NewAnthropicPair(apiKey, fastModel, robustModel string) *Pair {
+	if fastModel == "" {
+		fastModel = DefaultAnthropicFast
+	}
+	if robustModel == "" {
+		robustModel = DefaultAnthropicRobust
+	}
+	return &Pair{
+		Fast:   NewAnthropicWithModel(apiKey, fastModel),
+		Robust: NewAnthropicWithModel(apiKey, robustModel),
+	}
+}
+
+// NewOllamaPair creates a Fast/Robust pair against a local Ollama server.
+// Empty model names fall back to the package defaults.
+func NewOllamaPair(fastModel, robustModel, baseURL string, numCtx int) *Pair {
+	if fastModel == "" {
+		fastModel = DefaultOllamaFast
+	}
+	if robustModel == "" {
+		robustModel = DefaultOllamaRobust
+	}
+	return &Pair{
+		Fast:   NewOllama(fastModel, baseURL, numCtx),
+		Robust: NewOllama(robustModel, baseURL, numCtx),
+	}
+}
+
+// Options is per-call configuration.
+type Options struct {
+	// MaxTokens caps the response. Defaults to 8192 if zero.
+	MaxTokens int
+	// JSONMode asks the provider to return strict JSON. On Ollama this enables
+	// the OpenAI-compatible response_format=json_object hint; on Anthropic it
+	// reinforces the system prompt with a "respond with valid JSON only" line.
+	JSONMode bool
+	// Stream forces streaming on Ollama. Default is true for any call >2048
+	// max_tokens since long generations otherwise time out before headers.
+	Stream *bool
+}
 
 // Client can talk to either the Anthropic API or a local Ollama instance.
 type Client struct {
@@ -27,15 +98,21 @@ type Client struct {
 	http      *http.Client
 }
 
-// New creates an Anthropic client using claude-sonnet-4-6.
+// New creates an Anthropic client using the default robust model.
+// Kept for backward compatibility. New code should use NewAnthropicPair.
 func New(apiKey string) *Client {
+	return NewAnthropicWithModel(apiKey, DefaultAnthropicRobust)
+}
+
+// NewAnthropicWithModel creates an Anthropic client against a specific model.
+func NewAnthropicWithModel(apiKey, model string) *Client {
 	return &Client{
 		provider:  "anthropic",
-		model:     "claude-sonnet-4-6",
+		model:     model,
 		apiKey:    apiKey,
 		baseURL:   anthropicURL,
-		batchSize: 10,
-		http:      &http.Client{Timeout: 180 * time.Second},
+		batchSize: 5, // smaller batches → less truncation risk in JSON output
+		http:      &http.Client{Timeout: 0}, // controlled by ctx
 	}
 }
 
@@ -54,8 +131,8 @@ func NewOllama(model, baseURL string, numCtx int) *Client {
 		model:     model,
 		baseURL:   baseURL,
 		numCtx:    numCtx,
-		batchSize: 3, // smaller batches to fit the local model's context
-		http:      &http.Client{Timeout: 600 * time.Second},
+		batchSize: 2, // local models are slower; smaller batches keep output tight
+		http:      &http.Client{Timeout: 0}, // controlled by ctx
 	}
 }
 
@@ -65,21 +142,41 @@ func (c *Client) BatchSize() int { return c.batchSize }
 // Provider returns "anthropic" or "ollama".
 func (c *Client) Provider() string { return c.provider }
 
-// Complete sends messages and returns the assistant's text response.
+// Model returns the model name in use.
+func (c *Client) Model() string { return c.model }
+
+// Complete is a convenience wrapper for a default-options call.
 func (c *Client) Complete(ctx context.Context, maxTokens int, messages []Message) (string, error) {
-	return c.CompleteWithSystem(ctx, "", maxTokens, messages)
+	return c.CompleteEx(ctx, "", messages, Options{MaxTokens: maxTokens})
 }
 
-// CompleteWithSystem sends messages with an optional system prompt.
+// CompleteWithSystem keeps the legacy 4-arg signature working.
 func (c *Client) CompleteWithSystem(ctx context.Context, system string, maxTokens int, messages []Message) (string, error) {
+	return c.CompleteEx(ctx, system, messages, Options{MaxTokens: maxTokens})
+}
+
+// CompleteJSON requests strict JSON output (provider-specific hint).
+func (c *Client) CompleteJSON(ctx context.Context, system string, maxTokens int, messages []Message) (string, error) {
+	return c.CompleteEx(ctx, system, messages, Options{MaxTokens: maxTokens, JSONMode: true})
+}
+
+// CompleteEx is the full-featured entry point.
+func (c *Client) CompleteEx(ctx context.Context, system string, messages []Message, opts Options) (string, error) {
+	if opts.MaxTokens == 0 {
+		opts.MaxTokens = 8192
+	}
 	if c.provider == "ollama" {
+		stream := true // default to streaming on Ollama (avoids "awaiting headers" timeouts)
+		if opts.Stream != nil {
+			stream = *opts.Stream
+		}
 		if system != "" {
 			sysMsg := Message{Role: "system", Content: []ContentBlock{{Type: "text", Text: system}}}
 			messages = append([]Message{sysMsg}, messages...)
 		}
-		return c.completeOllama(ctx, maxTokens, messages)
+		return c.completeOllama(ctx, opts.MaxTokens, opts.JSONMode, stream, messages)
 	}
-	return c.completeAnthropic(ctx, system, maxTokens, messages)
+	return c.completeAnthropic(ctx, system, opts.MaxTokens, opts.JSONMode, messages)
 }
 
 // --- Anthropic ---
@@ -102,7 +199,13 @@ type anthropicResponse struct {
 	} `json:"error,omitempty"`
 }
 
-func (c *Client) completeAnthropic(ctx context.Context, system string, maxTokens int, messages []Message) (string, error) {
+func (c *Client) completeAnthropic(ctx context.Context, system string, maxTokens int, jsonMode bool, messages []Message) (string, error) {
+	if jsonMode && system != "" {
+		system += "\n\nRespond with strictly valid JSON only — no markdown, no preamble, no commentary."
+	} else if jsonMode {
+		system = "Respond with strictly valid JSON only — no markdown, no preamble, no commentary."
+	}
+
 	body, err := json.Marshal(anthropicRequest{
 		Model:     c.model,
 		MaxTokens: maxTokens,
@@ -148,12 +251,17 @@ type ollamaMessage struct {
 	Content string `json:"content"`
 }
 
+type ollamaResponseFormat struct {
+	Type string `json:"type"`
+}
+
 type ollamaRequest struct {
-	Model     string          `json:"model"`
-	Messages  []ollamaMessage `json:"messages"`
-	Stream    bool            `json:"stream"`
-	MaxTokens int             `json:"max_tokens,omitempty"`
-	Options   struct {
+	Model          string                `json:"model"`
+	Messages       []ollamaMessage       `json:"messages"`
+	Stream         bool                  `json:"stream"`
+	MaxTokens      int                   `json:"max_tokens,omitempty"`
+	ResponseFormat *ollamaResponseFormat `json:"response_format,omitempty"`
+	Options        struct {
 		NumCtx int `json:"num_ctx"`
 	} `json:"options"`
 }
@@ -169,7 +277,19 @@ type ollamaResponse struct {
 	} `json:"error,omitempty"`
 }
 
-func (c *Client) completeOllama(ctx context.Context, maxTokens int, messages []Message) (string, error) {
+type ollamaStreamChunk struct {
+	Choices []struct {
+		Delta struct {
+			Content string `json:"content"`
+		} `json:"delta"`
+		FinishReason *string `json:"finish_reason"`
+	} `json:"choices"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
+}
+
+func (c *Client) completeOllama(ctx context.Context, maxTokens int, jsonMode, stream bool, messages []Message) (string, error) {
 	// Convert multi-block messages to plain strings (Ollama uses simple content strings)
 	oMsgs := make([]ollamaMessage, 0, len(messages))
 	for _, msg := range messages {
@@ -186,9 +306,12 @@ func (c *Client) completeOllama(ctx context.Context, maxTokens int, messages []M
 	var reqBody ollamaRequest
 	reqBody.Model = c.model
 	reqBody.Messages = oMsgs
-	reqBody.Stream = false
+	reqBody.Stream = stream
 	reqBody.MaxTokens = maxTokens
 	reqBody.Options.NumCtx = c.numCtx
+	if jsonMode {
+		reqBody.ResponseFormat = &ollamaResponseFormat{Type: "json_object"}
+	}
 
 	body, err := json.Marshal(reqBody)
 	if err != nil {
@@ -200,12 +323,24 @@ func (c *Client) completeOllama(ctx context.Context, maxTokens int, messages []M
 		return "", err
 	}
 	req.Header.Set("content-type", "application/json")
+	if stream {
+		req.Header.Set("accept", "text/event-stream")
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("Ollama request failed: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		errBody, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("Ollama HTTP %d: %s", resp.StatusCode, string(errBody))
+	}
+
+	if stream {
+		return readOllamaStream(ctx, resp.Body)
+	}
 
 	var result ollamaResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -218,6 +353,63 @@ func (c *Client) completeOllama(ctx context.Context, maxTokens int, messages []M
 		return "", fmt.Errorf("empty Ollama response")
 	}
 	return result.Choices[0].Message.Content, nil
+}
+
+// readOllamaStream consumes the SSE stream and concatenates the deltas.
+// Honours ctx cancellation between chunks.
+func readOllamaStream(ctx context.Context, body io.Reader) (string, error) {
+	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
+
+	var sb strings.Builder
+	idle := time.Now()
+
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return sb.String(), ctx.Err()
+		default:
+		}
+
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			// SSE separator — keep going but check idle window
+			if time.Since(idle) > 30*time.Minute {
+				return sb.String(), fmt.Errorf("Ollama stream idle for >30 min")
+			}
+			continue
+		}
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "[DONE]" {
+			break
+		}
+
+		var chunk ollamaStreamChunk
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			// Tolerate a malformed chunk — keep going. Local servers occasionally
+			// emit a non-JSON keep-alive comment.
+			continue
+		}
+		if chunk.Error != nil {
+			return sb.String(), fmt.Errorf("Ollama stream error: %s", chunk.Error.Message)
+		}
+		for _, ch := range chunk.Choices {
+			if ch.Delta.Content != "" {
+				sb.WriteString(ch.Delta.Content)
+				idle = time.Now()
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return sb.String(), fmt.Errorf("Ollama stream read: %w", err)
+	}
+	if sb.Len() == 0 {
+		return "", fmt.Errorf("Ollama stream produced no content")
+	}
+	return sb.String(), nil
 }
 
 // --- Content block helpers ---

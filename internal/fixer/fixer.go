@@ -8,17 +8,30 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"inconsistencyfixer/internal/claude"
 	"inconsistencyfixer/internal/models"
 	"inconsistencyfixer/internal/story"
 )
 
-const maxTokens = 8192
+const (
+	maxTokens   = 8192
+	fixTimeout  = 15 * time.Minute
+)
 
 // Run fixes all inconsistent chapters and writes story_fixed.txt to outputDir.
-func Run(outputDir string, client *claude.Client) error {
-	chaptersDir := filepath.Join(outputDir, "chapters")
+// Always uses the Robust model — rewriting prose without losing the author's
+// voice is exactly the kind of work the cheap model does poorly.
+func Run(outputDir string, pair *claude.Pair) error {
+	return RunDir(outputDir, "chapters", pair)
+}
+
+// RunDir lets the writer point the fixer at a different chapters subdirectory.
+func RunDir(outputDir, chaptersSubdir string, pair *claude.Pair) error {
+	client := pair.Robust
+	log.Printf("Fixer: provider=%s model=%s", client.Provider(), client.Model())
+	chaptersDir := filepath.Join(outputDir, chaptersSubdir)
 	fixedDir := filepath.Join(outputDir, "chapters_fixed")
 	reportPath := filepath.Join(outputDir, "inconsistencies.json")
 	storyFixedPath := filepath.Join(outputDir, "story_fixed.txt")
@@ -131,7 +144,9 @@ Rewrite the chapter fixing ONLY the listed inconsistencies. Rules:
 Return ONLY the fixed chapter body text — no chapter title/header line, no commentary.`,
 		ch.Number, ch.Title, incList, ch.Content)
 
-	resp, err := client.Complete(context.Background(), maxTokens, []claude.Message{
+	ctx, cancel := context.WithTimeout(context.Background(), fixTimeout)
+	defer cancel()
+	resp, err := client.Complete(ctx, maxTokens, []claude.Message{
 		claude.UserMessage(
 			// Cache the world bible — same across all chapter fix calls
 			claude.CachedTextBlock(fmt.Sprintf("WORLD BIBLE (use this as the source of truth for all facts):\n%s", bibleJSON)),
