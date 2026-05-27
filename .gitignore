@@ -1,3 +1,17 @@
 .env
 output/
 *.exe
+
+# Claude Code local config
+.claude/
+
+# Run output (kept locally, not in the repo)
+inconsistencias.txt
+
+# Python (scripts/)
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+.vscode/

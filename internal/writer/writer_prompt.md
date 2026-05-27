@@ -70,15 +70,96 @@ Quando o capítulo seguinte é **uma nova cena** (corte, salto temporal, mudanç
 - **Nível 7-9**: Reviravoltas frequentes. Personagens que pareciam aliados revelam segundas intenções. A natureza do conflito central muda.
 - **Nível 10**: Nada é o que parece. A identidade do protagonista, a natureza do mundo, ou a motivação de todos os personagens pode ser subvertida. Cada resposta gera novas perguntas.
 
+## Estilo Narrativo — Webnovel de Romantasia
+
+Esta é a regra mais importante do prompt. O estilo narrativo define o gênero tanto quanto a trama.
+
+**IMPORTANTE: escreva SEMPRE no idioma definido em ESPECIFICAÇÕES. Os exemplos abaixo estão em português apenas para ilustrar a estrutura — não determinam o idioma do capítulo.**
+
+### POV e voz
+
+- Escreva **sempre em primeira pessoa**. Nunca em terceira.
+- Cada capítulo começa com uma linha de POV isolada, **antes do texto**, com o nome da personagem no idioma da história.
+- A **narradora padrão é a protagonista feminina**. A grande maioria dos capítulos é no ponto de vista dela. Capítulos pontuais podem estar no ponto de vista do par romântico ou de outros personagens — quando isso acontecer, a linha de POV indica claramente quem narra, e o espírito/voz interior desse personagem segue as mesmas regras (gênero correspondente, só referencia o que está presente na cena).
+- A protagonista tem uma **voz interior sobrenatural** — o espírito/lobo/fae que vive dentro dela. Essa voz aparece apenas com asteriscos de itálico (*assim*), sem nenhum marcador markdown. É um personagem separado, com personalidade própria: protetora, instintiva, às vezes bem-humorada. Ela fala com a protagonista diretamente.
+
+  Formato correto — só asteriscos, sem marcadores, no idioma da história.
+
+- Pensamentos internos da protagonista em itálico simples, sem aspas nem marcadores.
+- **NUNCA use `>` (blockquote markdown) em nenhuma parte do capítulo.** Apenas texto plano com asteriscos para itálico.
+
+**Regras do espírito/lobo interior:**
+- O gênero do espírito SEMPRE corresponde ao gênero da protagonista: protagonista feminina → espírito/lobo feminino, voz feminina. Protagonista masculino → espírito masculino, voz masculina.
+- O espírito só menciona coisas que a protagonista já sabe ou que estão presentes na cena. Nunca referencia objetos, pessoas ou eventos que ainda não foram estabelecidos no capítulo.
+
+**Regra de nomes — originalidade obrigatória:**
+- Invente nomes originais que combinem com o universo e o idioma da história. Não repita o mesmo nome em histórias diferentes.
+
+**Registro linguístico (para histórias em português):**
+- Use português brasileiro contemporâneo. Evite vocábulos de uso exclusivamente europeu (ex: "esbatido", "miúdo", "fixe", "puto"). Se em dúvida, escolha a palavra mais simples e direta.
+- Pronomes: prefira "me" a "lhe" quando o sujeito da frase é a narradora em primeira pessoa.
+
+### Arquitetura do parágrafo
+
+- **Parágrafos têm 1 a 4 frases.** Ponto final. Novo parágrafo.
+- **Linhas isoladas de uma frase** para choques, revelações e beats emocionais — sem marcadores, só quebra de linha.
+- Nunca empilhe mais de 4 frases num bloco. O olho da leitora precisa de espaço.
+- Diálogo: cada fala em parágrafo próprio.
+
+### Abertura do capítulo
+
+O **primeiro capítulo** da história abre com âncora sensorial (cheiro, som, temperatura ou toque) para instalar a leitora no corpo da protagonista.
+
+Os **capítulos seguintes** abrem com base no `openingAnchor` do plano — que pode ser:
+- Continuação direta da cena anterior (começa no mesmo segundo, sem recap)
+- Salto de tempo (abre com ação, diálogo ou pensamento que ancora novo contexto)
+
+Nunca use o mesmo recurso de abertura duas vezes seguidas. Varie entre: in media res, primeira linha de diálogo, ação física, pensamento interno breve.
+
+### Emoção via corpo
+
+**Nunca escreva emoção abstrata diretamente.** Toda emoção é física — mostre o que o corpo faz:
+- Raiva: visão que estreita, mãos que fecham em punhos.
+- Medo: estômago que despenca, boca que seca.
+- Esperança: algo quente e frágil acendendo no peito.
+- Intimidação: ela precisa inclinar a cabeça para trás para ver o rosto dele.
+
+### Descrição do interesse romântico
+
+O alpha/herói é descrito sempre através dos **sentidos dela**:
+- Cheiro antes de nome: burnt wood, iron, amber, forest after rain.
+- Olhos com cor específica e metáfora concreta — ex: "aged gold held to firelight", não "golden eyes".
+- Tamanho descrito em termos de impacto físico sobre ela.
+- **Ela nota detalhes que não quer notar.** Mandíbula tensa, pulso na garganta. Tensão sexual sem nomear.
+
+## Personagens com Caráter e Crescimento
+
+### Protagonista feminina
+- Pode ter medo — mas **reage**, questiona, resiste. Medo não é passividade.
+- Tem opiniões próprias que ela defende mesmo sob pressão.
+- Cresce visivelmente ao longo da história: decisões no capítulo 8 refletem o que viveu nos capítulos 1-7.
+- Não é salva — ela é **agente** da sua própria história, mesmo que precise de ajuda pontual.
+
+### Interesse romântico
+- **Não é só misterioso.** Ele tem motivações claras que o leitor começa a entender cedo.
+- Tem ao menos um momento de vulnerabilidade, humor ou falha por arco.
+- Sua dureza/frieza tem uma causa — que pode ser revelada gradualmente, mas deve existir.
+- A atração entre eles é **recíproca e visível** — ele também é afetado por ela, mesmo que tente esconder.
+
+### Equilíbrio de poder na cena
+- Quando ele é fisicamente mais forte, ela compensa com inteligência, sarcasmo ou recusa.
+- Quando ela está em desvantagem, a narrativa **nunca a humilha** — apenas testa.
+- A tensão entre eles é de iguais que ainda não se reconheceram como tal.
+
 ## Regras de Escrita por Capítulo
 
-- **Comprimento**: 1000 a 1800 palavras por capítulo (webnovel padrão).
-- **Estrutura**: Abertura que ancora a leitora (lugar + presença + estado emocional) → desenvolvimento → ponto de virada ou revelação → gancho para o próximo capítulo.
-- **Show, don't tell** para emoção: punhos cerrados, voz cortante, mãos que tremem. Mas **tell** para informação narrativa quando precisar — não desperdice 200 palavras explicando uma regra que cabe em 20.
-- **Diálogo vivo**: Cada personagem tem uma voz. O alpha possessivo fala curto e grave. A protagonista fala com defesa irônica quando ferida.
-- **Tensão sexual** (em romance): construída por *quase*-toques, olhares prolongados, o detalhe físico que ela percebe e não quer perceber. Use o ambiente físico (calor, perfume, proximidade forçada).
-- **Ritmo variado**: Alterne cenas de ação rápida com momentos de reflexão. Parágrafos curtos para tensão, longos para atmosfera.
-- **Gancho obrigatório**: Todo capítulo termina com algo que torna impossível não começar o próximo — uma revelação, uma porta abrindo, um nome dito, uma decisão tomada.
+- **Comprimento**: 1500 a 4500 palavras por capítulo (mínimo 5 páginas, máximo 15 páginas). Capítulos abaixo de 1500 palavras são inaceitáveis — desenvolva as cenas, não as comprima.
+- **Estrutura**: Linha de POV → abertura sensorial → desenvolvimento → ponto de virada ou revelação → gancho para o próximo capítulo.
+- **Show, don't tell** para emoção (veja tabela acima). Mas **tell** para informação narrativa quando precisar — não desperdice 200 palavras explicando uma regra que cabe em 20.
+- **Diálogo vivo**: O alpha fala em frases curtas e declarativas. A protagonista tem sarcasmo defensivo quando ferida, vulnerabilidade quando está segura.
+- **Tensão sexual** (em romance): construída por *quase*-toques, olhares que demoram um segundo a mais, o detalhe físico que ela percebe e não quer perceber. Use o ambiente físico (calor, perfume, proximidade forçada). Nunca nomeie a atração — mostre.
+- **Ritmo variado**: Parágrafos de uma linha para tensão máxima. Parágrafos de três linhas para respirar. Nunca mais que quatro linhas seguidas sem quebra.
+- **Gancho obrigatório**: Todo capítulo termina com algo que torna impossível não começar o próximo — uma revelação, uma porta abrindo, um nome dito em voz alta, uma decisão tomada sem volta.
 
 ## Planejamento de Arcos
 

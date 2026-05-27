@@ -82,6 +82,11 @@ type Options struct {
 	// the OpenAI-compatible response_format=json_object hint; on Anthropic it
 	// reinforces the system prompt with a "respond with valid JSON only" line.
 	JSONMode bool
+	// Schema is an optional JSON schema for structured output (Ollama ≥0.4.0
+	// via response_format=json_schema). When set, overrides JSONMode for Ollama
+	// and constrains the model to output exactly the specified fields.
+	// Ignored by Anthropic (which uses different structured-output mechanisms).
+	Schema json.RawMessage
 	// Stream forces streaming on Ollama. Default is true for any call >2048
 	// max_tokens since long generations otherwise time out before headers.
 	Stream *bool
@@ -174,7 +179,7 @@ func (c *Client) CompleteEx(ctx context.Context, system string, messages []Messa
 			sysMsg := Message{Role: "system", Content: []ContentBlock{{Type: "text", Text: system}}}
 			messages = append([]Message{sysMsg}, messages...)
 		}
-		return c.completeOllama(ctx, opts.MaxTokens, opts.JSONMode, stream, messages)
+		return c.completeOllama(ctx, opts.MaxTokens, opts.JSONMode, opts.Schema, stream, messages)
 	}
 	return c.completeAnthropic(ctx, system, opts.MaxTokens, opts.JSONMode, messages)
 }
@@ -251,8 +256,15 @@ type ollamaMessage struct {
 	Content string `json:"content"`
 }
 
+type ollamaJSONSchema struct {
+	Name   string          `json:"name"`
+	Schema json.RawMessage `json:"schema"`
+	Strict bool            `json:"strict"`
+}
+
 type ollamaResponseFormat struct {
-	Type string `json:"type"`
+	Type       string            `json:"type"`
+	JSONSchema *ollamaJSONSchema `json:"json_schema,omitempty"`
 }
 
 type ollamaRequest struct {
@@ -289,7 +301,7 @@ type ollamaStreamChunk struct {
 	} `json:"error,omitempty"`
 }
 
-func (c *Client) completeOllama(ctx context.Context, maxTokens int, jsonMode, stream bool, messages []Message) (string, error) {
+func (c *Client) completeOllama(ctx context.Context, maxTokens int, jsonMode bool, schema json.RawMessage, stream bool, messages []Message) (string, error) {
 	// Convert multi-block messages to plain strings (Ollama uses simple content strings)
 	oMsgs := make([]ollamaMessage, 0, len(messages))
 	for _, msg := range messages {
@@ -309,7 +321,16 @@ func (c *Client) completeOllama(ctx context.Context, maxTokens int, jsonMode, st
 	reqBody.Stream = stream
 	reqBody.MaxTokens = maxTokens
 	reqBody.Options.NumCtx = c.numCtx
-	if jsonMode {
+	if len(schema) > 0 {
+		reqBody.ResponseFormat = &ollamaResponseFormat{
+			Type: "json_schema",
+			JSONSchema: &ollamaJSONSchema{
+				Name:   "response",
+				Schema: schema,
+				Strict: true,
+			},
+		}
+	} else if jsonMode {
 		reqBody.ResponseFormat = &ollamaResponseFormat{Type: "json_object"}
 	}
 
@@ -410,6 +431,66 @@ func readOllamaStream(ctx context.Context, body io.Reader) (string, error) {
 		return "", fmt.Errorf("Ollama stream produced no content")
 	}
 	return sb.String(), nil
+}
+
+// --- Model availability check ---
+
+// CheckModels queries Ollama's /api/tags endpoint and returns the model names
+// that are configured in the pair but not yet pulled locally. Returns nil for
+// Anthropic pairs (availability is not checkable without a live API call).
+func CheckModels(pair *Pair) []string {
+	if pair == nil || pair.Robust == nil || pair.Robust.provider != "ollama" {
+		return nil
+	}
+
+	available, err := listOllamaModels(pair.Robust.baseURL, pair.Robust.http)
+	if err != nil {
+		// If we can't reach Ollama at all, report both models as unavailable.
+		return []string{pair.Fast.model, pair.Robust.model}
+	}
+
+	pulled := make(map[string]bool, len(available))
+	for _, m := range available {
+		pulled[m] = true
+		// Ollama sometimes appends ":latest" even when the user omits it.
+		// Treat "foo:latest" as equivalent to "foo".
+		if tag := strings.TrimSuffix(m, ":latest"); tag != m {
+			pulled[tag] = true
+		}
+	}
+
+	var missing []string
+	for _, model := range []string{pair.Fast.model, pair.Robust.model} {
+		if !pulled[model] {
+			missing = append(missing, model)
+		}
+	}
+	return missing
+}
+
+type ollamaTagsResponse struct {
+	Models []struct {
+		Name string `json:"name"`
+	} `json:"models"`
+}
+
+func listOllamaModels(baseURL string, httpClient *http.Client) ([]string, error) {
+	resp, err := httpClient.Get(baseURL + "/api/tags")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result ollamaTagsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	names := make([]string, len(result.Models))
+	for i, m := range result.Models {
+		names[i] = m.Name
+	}
+	return names, nil
 }
 
 // --- Content block helpers ---

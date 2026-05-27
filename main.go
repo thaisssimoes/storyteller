@@ -57,6 +57,16 @@ Two-tier model setup (defaults baked in):
                              the same model (kept for backward compatibility)
   OLLAMA_URL                 default: http://localhost:11434
   OLLAMA_NUM_CTX             default: 16384 (recommend 32768+ for the reader)
+
+Recommended model pairs by VRAM:
+  8 GB   fast=qwen2.5:7b      robust=gemma2:9b        (~2 h for 94 chapters)
+  12 GB  fast=qwen2.5:7b      robust=qwen2.5:14b      (~3 h for 94 chapters)
+  16 GB  fast=qwen2.5:14b     robust=gemma2:27b        (~5 h for 94 chapters)
+  24 GB+ fast=qwen2.5:14b     robust=gemma2:27b        (~2 h for 94 chapters)
+
+  Using a model larger than your VRAM forces CPU offload and is 5-10x slower.
+  Setting OLLAMA_MODEL to a single large model uses it for all passes,
+  which is the slowest configuration for scene/continuity scans.
 `
 
 func main() {
@@ -226,6 +236,13 @@ func buildPair() *claude.Pair {
 		pair := claude.NewOllamaPair(fastModel, robustModel, baseURL, numCtx)
 		log.Printf("Using Ollama: fast=%s robust=%s url=%s",
 			pair.Fast.Model(), pair.Robust.Model(), baseURL)
+		if missing := claude.CheckModels(pair); len(missing) > 0 {
+			for _, m := range missing {
+				log.Printf("  ⚠  Model not pulled: %s — run: ollama pull %s", m, m)
+			}
+			log.Fatal("Aborting: pull the missing model(s) above before continuing.")
+		}
+		log.Printf("  ✓ Both models available in Ollama")
 		return pair
 
 	default:
